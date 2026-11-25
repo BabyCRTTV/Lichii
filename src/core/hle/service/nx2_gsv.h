@@ -2104,13 +2104,12 @@ private:
         // ahead, where it rewrote memory the GPU thread hadn't read yet (misread commands, then
         // a freeze or crash; rubberbanding while moving). Title 1 runs ahead without either.
         constexpr u64 DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL;
-        // Ocarina waited ~12 ms a frame on its previous frame's fence here (#161).
-        constexpr u64 OcarinaOfTimeProgramId = 0x0400486024DEC000ULL;
         int frames_ahead = frames_ahead_setting;
         const u64 app_program_id = system.GetApplicationProcessProgramID();
         if (frames_ahead == -1 && app_program_id == DonkeyKongBananzaProgramId) {
             frames_ahead = 0;
-        } else if (frames_ahead == -1 && app_program_id == OcarinaOfTimeProgramId) {
+        } else if (frames_ahead == -1 && app_program_id == Settings::OcarinaOfTimeProgramId) {
+            // Ocarina waited ~12 ms a frame on its previous frame's fence here (#161).
             frames_ahead = 1;
         }
         constexpr u64 DuskbloodsNetworkTestProgramId = 0x0400D1D02399A000ULL;
@@ -3512,6 +3511,11 @@ private:
                  w[6], w[7]);
         {
             std::scoped_lock lk{m_mutex};
+            const bool ocarina_av1 =
+                system.GetApplicationProcessProgramID() == Settings::OcarinaOfTimeProgramId &&
+                (codec == "video/av1" || codec == "video/av01");
+            m_release_timing = ocarina_av1 ? Nx2MovieClock::ReleaseTiming::AlignAtStart
+                                           : Nx2MovieClock::ReleaseTiming::FollowClient;
             m_codec = std::move(codec);
             m_width = w[5];
             m_height = w[6];
@@ -3618,7 +3622,8 @@ private:
                 std::ranges::find(m_free, *acquired) == m_free.end() &&
                 std::ranges::none_of(m_outputs, is_acquired)) {
                 m_clock.Released(HostTimeUs(),
-                                 Core::g_nx2_present_count.load(std::memory_order_relaxed));
+                                 Core::g_nx2_present_count.load(std::memory_order_relaxed),
+                                 m_release_timing);
             }
         }
         const auto handle = HandOut(w[2], Fence{~w[4], w[6]});
@@ -4177,6 +4182,7 @@ private:
     u64 m_decoded_frames{};
     u64 m_frames_dropped{};
     Nx2MovieClock m_clock;
+    Nx2MovieClock::ReleaseTiming m_release_timing{Nx2MovieClock::ReleaseTiming::FollowClient};
     u64 m_frame_interval{16667}; ///< us, from consecutive decoded frames
     u64 m_last_decoded_pts{};
     u32 m_dropped_in_a_row{};
